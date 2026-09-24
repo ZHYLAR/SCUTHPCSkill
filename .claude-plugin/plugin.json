@@ -1,0 +1,7 @@
+{
+  "name": "scut-hpc",
+  "description": "华南理工科学计算平台（hpckapok2 / Slurm）作业提交、排障、存储清理与容器/代理配置的实战指南与 sbatch 模板。",
+  "version": "0.1.0",
+  "author": { "name": "IRAgentLab" },
+  "keywords": ["hpc", "slurm", "scut", "sbatch", "apptainer"]
+}

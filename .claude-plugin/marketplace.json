@@ -1,0 +1,8 @@
+{
+  "name": "scut-hpc",
+  "owner": { "name": "IRAgentLab" },
+  "metadata": { "description": "华南理工 HPC（Slurm）使用技能" },
+  "plugins": [
+    { "name": "scut-hpc", "source": "./", "description": "华南理工 HPC（hpckapok2 / Slurm）作业提交、排障、存储清理、容器/代理配置指南 + sbatch 模板", "version": "0.1.0" }
+  ]
+}

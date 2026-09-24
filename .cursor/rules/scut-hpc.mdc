@@ -1,0 +1,7 @@
+---
+description: 在华南理工 HPC（hpckapok2 / Slurm）上提交、排查、清理作业时使用
+globs: ["**/*.sbatch", "**/*.slurm", "**/slurm*/**"]
+alwaysApply: false
+---
+遇到 HPC/Slurm 相关任务，先完整阅读并遵循 `skills/scut-hpc/SKILL.md`（模板在 `skills/scut-hpc/templates/`）。
+关键规则：登录节点不跑重计算；sbatch 必须 `--propagate=NONE` 且 `#SBATCH` 全在首条命令前；线程按申请核数派生；依赖链而非轮询；脚本末尾 `exit $RC`；删除前 dry-run。
