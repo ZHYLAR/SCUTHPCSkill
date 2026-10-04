@@ -116,15 +116,30 @@ sbatch -J train --dependency=singleton train.sbatch   # 同名作业串行，天
 ### 4.1 分区选择与节点状态
 
 ```bash
-sinfo -p gpuA800 -N -o '%N %t %G %C'           # 每节点状态：idle/mix/alloc/drain
-sinfo -p gpuA800 -N --states=idle,mix           # 能立刻拿到卡的节点
+sinfo -p gpuA800 -N -o '%N %t %G %C'           # 每节点状态：idle/mix/alloc/drain；%G 是总卡数不是空卡
+sinfo -p gpuA800 -N --states=idle,mix           # 候选节点，还要再扣 CPU
 sinfo -p cpuXeon6458 -o '%P %a %D %t'
 ```
 
-- `gpuA800`：标称 20 节点，**实际常只有少数节点可用，其余 drain**；排队时先看 `sinfo`，别盲等。
-- `cpuXeon6458`：195 节点，默认 CPU 分区。
-- `cpuHygon7380`：AMD 兼容架构，**某些 x86 扩展指令不支持**（出现 SIGILL / `rc=132` 就换 Xeon）。
-- 申请原则：每次只要需要的卡（评测/推理 1 卡，微调 2–4 卡），`--cpus-per-task` 按卡数线性（1 卡 12 核、2 卡 24 核），`--mem` 按需（节点 512 GB）。**为什么**：可用节点少，申请 8 卡整机会排很久，也挤占同组的人。
+### 4.1.1 不排队就能用的卡（提交前必查）
+
+**为什么**：`sinfo` 的空闲 GPU 是各节点「还没分出去的卡」相加。平台要求按卡配核（集群 1 的 `gpuA800` 为 **1 卡 9 核**，集群 2 的 `gpuA800` / `gpuMi210` / `gpuHygonZ100` 为 **1 卡 8 核**）。混部节点经常是卡还在、核已经没了，这种卡会进排队。一个作业又是单节点的，不能把多台机器的空卡拼成一次申请。
+
+单节点可立即提交的卡数 = `min(空闲 GPU, floor(空闲 CPU / 每卡核数))`。只统计 `idle`/`mix`，排除 `drain`/`down`。名称以 `emic`、`gznet`、`ex`、`telecom` 开头的分区是专属资源，不计入公共可立即使用的数量。
+
+计算脚本是同目录的 `scripts/free_gpus.py`，在本机跑，不要把脚本内容贴进对话。`scontrol` 仍在集群上执行：
+
+```bash
+ssh scut-hpc  'scontrol -o show node' | python3 "<SKILL.md 同级>/scripts/free_gpus.py" --cores 8
+ssh scut-hpc1 'scontrol -o show node' | python3 "<SKILL.md 同级>/scripts/free_gpus.py" --cores 9
+```
+
+集群 2，以及 MI210 / Z100，用 `--cores 8`。集群 1 的 `gpuA800` 用 `--cores 9`。实际申请不是这个配核时，把 `--cores` 改成真实的每卡核数再算一遍。
+
+**优先用不排队资源**：卡数选上面打印出的某一档（有「可交 N 卡」的节点），不要为了凑满 8 卡去排 `PD`。评测/推理优先 1 卡；微调在不排队的前提下取 2–4 卡。每卡核数默认用平台配核（集群 1 A800 为 9，其余为 8），这样才对得上「可交 N 卡」。只有该档确实空闲、而且程序吃 CPU 时，才升到 1 卡 12 核并把 `CORES=12` 重算一遍；12 核对不上任何节点就退回 8/9 核，不要为此排队。`--mem` 按需，不要整节点。**为什么**：空卡合计看起来还有，核一不够就只能排队；先用当前单机能装下的规格，作业才能马上跑。
+
+- `gpuA800`：标称节点里常有不少 `drain`；排队前先跑上面的命令，别按标称卡数盲等。
+- `cpuXeon6458`：默认 CPU 分区。`cpuHygon7380` 不支持某些 x86 扩展指令（`SIGILL` / `rc=132` 就换 Xeon）。
 - 驱动不一致的节点用 `--exclude=gpuXX,gpuYY` 排掉。**为什么**：个别节点驱动版本与容器/venv 内 CUDA 库不匹配，`torch.cuda` 直接失败；模板里先 `nvidia-smi --query-gpu=driver_version` 校验，不匹配 `exit 75`，提交方加 `--exclude` 重提。
 
 ### 4.2 `--propagate=NONE`（必加）
@@ -274,7 +289,7 @@ apptainer exec --nv \
 
 1. `#SBATCH` 全部在第一条命令之前（跑一遍 §3.1 的 awk）。
 2. 有 `--propagate=NONE`；`-o %x_%j.out`；脚本末尾 `exit $RC`。
-3. 卡数/核数/内存/时限按需，不是整机；`--exclude` 里有已知坏节点。
+3. 先跑 §4.1.1，卡数选「可交 N 卡」里有节点的那一档；对不上就减少卡数或把每卡核数退回 8/9，不为了更大规格排队。`--exclude` 里有已知坏节点。
 4. 线程数从 `SLURM_CPUS_PER_TASK` 派生，没有硬编码 64。
 5. 计算节点要联网的步骤设了代理和 `HF_ENDPOINT`/`HF_HUB_DISABLE_XET`，预热类步骤有 `timeout`。
 6. 长作业有看门狗；输出目录存在且 `df -h $HOME` 还有余量（checkpoint 只留最后一个）。

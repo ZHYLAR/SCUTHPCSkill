@@ -10,3 +10,4 @@
 3. 线程数按申请核数派生，不按节点 64 核开；Isaac Sim 的 Kit 线程池 ≥ 8。
 4. 流水线用 `--dependency` 串联，脚本末尾 `exit $RC` 透传退出码。
 5. 删除类操作先 dry-run；训练进行中不要删 HF datasets 缓存。
+6. 提交 GPU 作业前用 `skills/scut-hpc/scripts/free_gpus.py` 看单机可立即提交的卡数，优先选不排队的规格。
