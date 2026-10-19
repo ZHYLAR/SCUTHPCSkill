@@ -65,7 +65,7 @@ hpc_ssh() {                       # 用法：hpc_ssh 'squeue -u $USER'
 #SBATCH -p gpuA800             # 或 cpuXeon6458 / cpuHygon7380
 #SBATCH --gres=gpu:1           # 只申请需要的卡数
 #SBATCH --cpus-per-task=12     # 1 卡 12 核、2 卡 24 核
-#SBATCH --time=24:00:00
+#SBATCH --time=24:00:00        # 占位。剩余卡少时改成同类任务的实际耗时，见 §4.1.2
 #SBATCH --propagate=NONE       # 见 §4.2
 #SBATCH -o %x_%j.out
 #SBATCH -e %x_%j.out
@@ -141,6 +141,18 @@ ssh scut-hpc1 'scontrol -o show node' | python3 "<SKILL.md 同级>/scripts/free_
 - `gpuA800`：标称节点里常有不少 `drain`；排队前先跑上面的命令，别按标称卡数盲等。
 - `cpuXeon6458`：默认 CPU 分区。`cpuHygon7380` 不支持某些 x86 扩展指令（`SIGILL` / `rc=132` 就换 Xeon）。
 - 驱动不一致的节点用 `--exclude=gpuXX,gpuYY` 排掉。**为什么**：个别节点驱动版本与容器/venv 内 CUDA 库不匹配，`torch.cuda` 直接失败；模板里先 `nvidia-smi --query-gpu=driver_version` 校验，不匹配 `exit 75`，提交方加 `--exclude` 重提。
+
+### 4.1.2 剩余卡少时，时限按同类任务填写
+
+调度器用的是 Slurm。空闲卡不多时，`--time` 远大于真实耗时的作业难以插进空档，会长时间停在 Priority，即使节点上还有能放下的卡。
+
+跑过相似任务时，用那次的实际耗时填一个相近的时限，不要用模板里的 `24:00:00`。先查成功记录：
+
+```bash
+sacct -u $USER --name=<相似作业名> --format=JobID,JobName,Elapsed,State -S 2026-01-01
+```
+
+`--time` 取略高于成功那次的 `Elapsed`（留出模型加载，通常多给 20%–30%，或取整到 30 分钟）。没有同类记录时再按步骤粗估，仍然不要把时限写得很长。已在排队的作业可以直接改：`scontrol update JobId=<id> TimeLimit=01:30:00`。改完看 `squeue` 的 Reason 和 `scontrol show job` 的 StartTime。
 
 ### 4.2 `--propagate=NONE`（必加）
 
@@ -289,7 +301,7 @@ apptainer exec --nv \
 
 1. `#SBATCH` 全部在第一条命令之前（跑一遍 §3.1 的 awk）。
 2. 有 `--propagate=NONE`；`-o %x_%j.out`；脚本末尾 `exit $RC`。
-3. 先跑 §4.1.1，卡数选「可交 N 卡」里有节点的那一档；对不上就减少卡数或把每卡核数退回 8/9，不为了更大规格排队。`--exclude` 里有已知坏节点。
+3. 先跑 §4.1.1，卡数选「可交 N 卡」里有节点的那一档；对不上就减少卡数或把每卡核数退回 8/9，不为了更大规格排队。剩余卡少时 `--time` 按 §4.1.2 参照同类任务的 `sacct` Elapsed，不要填过长。`--exclude` 里有已知坏节点。
 4. 线程数从 `SLURM_CPUS_PER_TASK` 派生，没有硬编码 64。
 5. 计算节点要联网的步骤设了代理和 `HF_ENDPOINT`/`HF_HUB_DISABLE_XET`，预热类步骤有 `timeout`。
 6. 长作业有看门狗；输出目录存在且 `df -h $HOME` 还有余量（checkpoint 只留最后一个）。
